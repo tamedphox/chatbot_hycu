@@ -1,0 +1,20 @@
+services:
+  hycu-chatbot-cpu:
+    build: .
+    container_name: hycu-chatbot-cpu
+    network_mode: "host"
+    volumes:
+      - ./data:/app/data
+      - ./.hf_cache:/app/.hf_cache
+      - ./res:/app/res:ro
+    environment:
+      - HF_HOME=/app/.hf_cache
+      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+      # Host PC에서 Ollama가 실행 중일 때 사용
+      # main.py에서 base_url을 이 주소로 맞추면 됨:
+      # http://host.docker.internal:11434
+      - OLLAMA_HOST=http://127.0.0.1:11434
+      #OLLAMA_HOST=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
