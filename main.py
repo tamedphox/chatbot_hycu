@@ -153,7 +153,11 @@ def get_embedding_model():
 
 @st.cache_resource
 def get_llm():
-    return Ollama(model="llama3.1")
+        return Ollama(
+        model="llama3.1",
+        base_url="http://127.0.0.1:11434"
+        #base_url="http://host.docker.internal:11434"
+    )
     #return Ollama(model="qwen2.5:7b")
 
 @st.cache_resource

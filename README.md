@@ -1,81 +1,103 @@
-# Chatbot_HYCU with Streamlit + RAG + STT 
-PDF, PPTX, TXT, 동영상 강의자료를 업로드하면 내용을 인덱싱하고, 강의자료 기반으로 질문에 답변하는 RAG 챗봇
+# CPU 전용 Streamlit ChatBot Docker
 
-## 1. Architecture
+## 목적
 
+- CPU 환경용
+- Streamlit 포트: 8888
+- 외부 접속: `http://서버IP:8888`
+- Ollama는 호스트 PC에서 실행
+- Docker 컨테이너는 `host.docker.internal:11434`로 Ollama 접근
+
+## 중요: main.py의 Ollama 설정
+
+`main.py`의 get_llm 함수를 아래처럼 수정하세요.
+
+```python
+@st.cache_resource
+def get_llm():
+    return Ollama(
+        model="llama3.1",
+        base_url="http://host.docker.internal:11434"
+    )
 ```
-chatbot_hycu/
-├── main.py
-├── requirements.txt
-├── question.png
-├── answer.png
-├── data/
-│   ├── lectures/
-│   └── chroma_db/
-└── README.md
+
+기존 코드가 아래처럼 되어 있으면 컨테이너 내부 localhost를 보게 되어 실패합니다.
+
+```python
+return Ollama(model="llama3.1")
 ```
 
-## 2. 가상환경 생성
+## 호스트에서 Ollama 실행 확인
 
 ```bash
-cd ~/chatbot_hycu/
-
-python3 -m venv .venv
-source .venv/bin/activate
+ollama list
+curl http://localhost:11434/api/tags
 ```
 
-## 3. 패키지 설치
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-## 4. 필수 시스템 패키지 설치
-
-```bash
-sudo apt update
-sudo apt install -y ffmpeg
-```
-
-## 5. Ollama 준비
+필요하면:
 
 ```bash
 ollama pull llama3.1
-ollama serve
 ```
 
-## 6. 실행
+## 실행
 
 ```bash
-streamlit run main.py
+chmod +x run.sh
+./run.sh
 ```
 
-접속:
+또는:
 
-http://localhost:8501
-
-## 7. 사용 방법
-
-1. 강의자료 업로드
-2. 인덱싱 버튼 클릭
-3. 질문 입력
-4. 답변 확인
-
-## 8. 인덱싱 개념
-
-```
-문서 → 텍스트 → chunk → embedding → vector DB 저장
+```bash
+docker compose up --build
 ```
 
-## 9. 초기화
+## 백그라운드 실행
+
+```bash
+docker compose up -d --build
+```
+
+## 접속
+
+```text
+http://서버IP:8888
+```
+
+로컬 PC에서만 확인하면:
+
+```text
+http://localhost:8888
+```
+
+## 방화벽
+
+```bash
+sudo ufw allow 8888/tcp
+sudo ufw reload
+```
+
+## 종료
+
+```bash
+docker compose down
+```
+
+## 로그 확인
+
+```bash
+docker logs -f hycu-chatbot-cpu
+```
+
+## 초기화
 
 ```bash
 rm -rf ./data/chroma_db
 mkdir -p ./data/chroma_db
 ```
 
-## 10. 오류 해결
+## 오류 해결
 
 ### HuggingFace 권한 오류
 ```bash
