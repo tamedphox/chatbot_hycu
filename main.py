@@ -283,12 +283,23 @@ def load_document(file_path: str):
 
 def build_vector_db(uploaded_files):
     all_docs = []
+    embedding_model = get_embedding_model()
 
     for uploaded_file in uploaded_files:
         save_path = os.path.join(LECTURE_DIR, uploaded_file.name)
 
         with open(save_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
+
+        # ✅ 여기서 먼저 기존 동일 파일 chunk 삭제
+        if os.path.exists(DB_DIR) and os.listdir(DB_DIR):
+            vectordb = Chroma(
+                persist_directory=DB_DIR,
+                embedding_function=embedding_model,
+            )
+            existing = vectordb.get(where={"source": uploaded_file.name})
+            if existing["ids"]:
+                vectordb.delete(ids=existing["ids"])
 
         docs = load_document(save_path)
 
@@ -301,19 +312,23 @@ def build_vector_db(uploaded_files):
         chunk_size=800,
         chunk_overlap=150,
     )
-
     chunks = splitter.split_documents(all_docs)
 
-    embedding_model = get_embedding_model()
-
-    Chroma.from_documents(
-        documents=chunks,
-        embedding=embedding_model,
-        persist_directory=DB_DIR,
-    )
+    # ✅ 그 다음 새 chunk 추가
+    if os.path.exists(DB_DIR) and os.listdir(DB_DIR):
+        vectordb = Chroma(
+            persist_directory=DB_DIR,
+            embedding_function=embedding_model,
+        )
+        vectordb.add_documents(chunks)
+    else:
+        Chroma.from_documents(
+            documents=chunks,
+            embedding=embedding_model,
+            persist_directory=DB_DIR,
+        )
 
     return len(chunks)
-
 
 def load_vector_db():
     embedding_model = get_embedding_model()
@@ -323,9 +338,11 @@ def load_vector_db():
     )
 
 
-def get_indexed_chunks(limit=20):
+def get_indexed_chunks(offset=0, limit=20):
     vectordb = load_vector_db()
-    data = vectordb.get(limit=limit)
+    total = vectordb._collection.count()
+    
+    data = vectordb.get(limit=offset + limit)
 
     chunks = []
     for i, doc in enumerate(data.get("documents", [])):
@@ -336,8 +353,7 @@ def get_indexed_chunks(limit=20):
                 "metadata": data["metadatas"][i],
             }
         )
-
-    return chunks
+    return chunks[offset:offset + limit], total
 
 
 def answer_question(question: str):
@@ -446,18 +462,36 @@ with st.sidebar:
 
     if debug_mode:
         st.divider()
-        st.header("🔍 Debugging")
+        st.header("🔍 Debugging Database")
 
-        chunk_limit = st.number_input(
-            "DB chunk",
-            min_value=1,
-            max_value=100,
-            value=min(st.session_state.last_chunk_count, 100),
-        )
+        try:
+            vectordb = load_vector_db()
+            total_chunks = vectordb._collection.count()
+            st.info(f"📦 전체 DB chunk 수: {total_chunks}개")
+        except:
+            total_chunk = 0
+            st.warning("DB가 아직 없습니다")
+
+        page_size = 20
+
+        if total_chunks > 0:
+            max_offset = max(0, total_chunks - page_size)
+            chunk_offset = st.slider(
+                    "Chunk 위치",
+                    min_value=0,
+                    max_value=max_offset,
+                    step=page_size,
+                    value=0,
+                    format=f"%d ~ {min(page_size, total_chunks)}",
+                    )
+            st.caption(f"표시 범위: {chunk_offset + 1} ~ {min(chunk_offset + page_size, total_chunks)}번째 chunk")
+        else:
+            chunk_offset = 0
 
         if st.button("DB Chunk 확인"):
             st.session_state["show_chunks"] = True
-            st.session_state["chunk_limit"] = chunk_limit
+            st.session_state["chunk_offset"] = chunk_offset
+            st.session_state["chunk_page_size"] = page_size
 
 
     st.markdown(
@@ -491,20 +525,21 @@ if st.session_state.get("last_sources"):
 
 
 if st.session_state.get("show_chunks"):
-    st.subheader("📦 인덱싱된 Chunk 목록")
+    vectordb = load_vector_db()
+    total = vectordb._collection.count()
+    offset = st.session_state.get("chunk_offset", 0)
+    page_size = st.session_state.get("chunk_page_size", 20)
 
-    chunks = get_indexed_chunks(
-        limit=st.session_state.get("chunk_limit", 20)
-    )
+    st.subheader(f"📦 인덱싱된 Chunk 목록 (전체 {total}개 중 {offset+1}~{min(offset+page_size, total)}번째 표시)")
 
-    for i, chunk in enumerate(chunks, start=1):
+    chunks, _ = get_indexed_chunks(offset=offset, limit=page_size)
+
+    for i, chunk in enumerate(chunks, start=offset + 1):
         with st.expander(f"Chunk {i} | {chunk['metadata'].get('source', 'unknown')}"):
             st.markdown("**Metadata**")
             st.json(chunk["metadata"])
-
             st.markdown("**Text**")
             st.write(chunk["text"])
-
 
 st.markdown(
     f"""
